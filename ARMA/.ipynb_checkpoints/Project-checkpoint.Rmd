@@ -1,0 +1,237 @@
+---
+title: "Untitled"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+
+#  Gene regulatory network
+
+```{r pressure, echo=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pcalg)
+
+data <- read.csv("./BRCA_RNASeqv2_top50.csv")
+data$class <- ifelse(data$class =="C", 1, 0)
+# data$class[data$class=="C"] <- 1
+# data$class[data$class=="N"] <- 0
+data$class <- as.numeric(data$class)
+genes <- subset(data, select=-(class))
+
+n <- nrow (genes)
+V <- colnames(genes) 
+pc.fit <- pc(suffStat = list(C = cor(genes), n = n),
+             indepTest = gaussCItest, alpha=0.01, labels = V)
+if (require(Rgraphviz)) {
+  ## show estimated graph
+  # par(mfrow=c(1,2))
+  plot(pc.fit
+       , main = "Graph 1 - Causal Structure")
+}
+```
+
+
+# How the PC algorithm works
+#  10 genes that have strong causal effects on EBF1
+```{r message=FALSE, warning=FALSE}
+pcS <- pcSelect(genes[c("EBF1")], genes[, !names(genes) %in% c("EBF1")] , alpha=0.05)
+# pcS
+pcs_frame <- data.frame(pcS,stringsAsFactors = FALSE)
+pcs_frame$gene <- rownames(pcs_frame)
+rownames(pcs_frame) <- NULL
+newdata <- pcs_frame[order(-pcs_frame$zMin),]
+newdata[0:10,]
+# selected_genes <- sort(abs(pcS$zMin),decreasing = TRUE)[0:10]
+# selected_genes
+```
+# Genes in the Markov blanket
+```{r message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(bnlearn)
+MB.Z=learn.mb(genes, "ABCA9", method="iamb", alpha=0.01)
+MB.Z 
+```
+# How the Markov blanket algorithm works
+
+
+# How PC-simple works
+
+
+# Parent and children set of the class variable by PC-simple
+```{r message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library("caret")
+library(e1071)
+library("klaR")
+
+mean_all <- mean(as.matrix(genes))
+genes <- as.data.frame(ifelse(genes > mean_all, 1, 0))
+data1 <- data
+data1[, !names(data1) %in% c("class")]  <- as.data.frame(ifelse(data[,!names(data) %in% c("class")]  > mean_all, 1, 0))
+
+
+pcS4 <- pcSelect(data[c("class")], genes , alpha=0.05)
+
+# selected_genes <- sort(abs(pcS4$zMin),decreasing = TRUE)[0:10]
+pcs4_frame <- data.frame(pcS4,stringsAsFactors = FALSE)
+pcs4_frame$gene <- rownames(pcs4_frame)
+rownames(pcs4_frame) <- NULL
+newdata4 <- pcs4_frame[order(-pcs4_frame$zMin),]
+pcs_genes <- newdata4[newdata4$G==TRUE,c("gene")]
+pcs_genes
+```
+
+# Naïve Bayes classification with all features
+```{r message=FALSE, warning=FALSE}
+# knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# genes[sapply(genes, is.double)] <- lapply(genes[sapply(genes, is.double)], as.factor)
+# genes
+data$class <- as.factor(data$class)
+train_index <- sample(1:nrow(genes), 0.8 * nrow(genes))
+test_index <- setdiff(1:nrow(genes), train_index)
+train <- genes[train_index,]
+test <- genes[test_index,]
+# x <- train[, !names(train) %in% c("class")] 
+x <- train
+y <- data[train_index,]$class
+
+model = train(x,y,'nb',trControl=trainControl(method='cv',number=10))
+
+x <- test
+y <- data[test_index,]$class
+confusionMatrix <- prop.table(table(predict(model$finalModel,x)$class,y))
+confusionMatrix
+           
+```
+## performance metrics
+```{r message=FALSE, warning=FALSE}
+
+accuracy <- (confusionMatrix[1,1]+confusionMatrix[2,2])/
+  (confusionMatrix[1,1]+confusionMatrix[1,2]+
+     confusionMatrix[2,1]+confusionMatrix[2,2])
+recall <-  confusionMatrix[1,1]/
+  (confusionMatrix[1,1]+confusionMatrix[1,2])
+Precision <-  confusionMatrix[1,1]/
+  (confusionMatrix[1,1]+confusionMatrix[2,1])
+F1 <- 2*(Precision*recall)/(Precision+recall)
+accuracy
+recall        
+Precision
+F1
+```
+# Naïve Bayes classification with features obtain by PC-simple
+```{r message=FALSE, warning=FALSE}
+
+#with selective genes################################
+
+genes_select <- genes[,c(pcs_genes)]
+
+train_index <- sample(1:nrow(genes_select), 0.8 * nrow(genes_select))
+test_index <- setdiff(1:nrow(genes_select), train_index)
+train <- genes_select[train_index,]
+test <- genes_select[test_index,]
+x <- train
+y <- data[train_index,]$class
+
+model = train(x,y,'nb',trControl=trainControl(method='cv',number=10))
+
+x <- test
+y <- data[test_index,]$class
+confusionMatrix_select <- prop.table(table(predict(model$finalModel,x)$class,y))
+confusionMatrix_select
+
+```
+## performance metrics
+```{r message=FALSE, warning=FALSE}
+
+accuracy <- (confusionMatrix_select[1,1]+confusionMatrix_select[2,2])/
+  (confusionMatrix_select[1,1]+confusionMatrix_select[1,2]+
+     confusionMatrix_select[2,1]+confusionMatrix_select[2,2])
+recall <-  confusionMatrix_select[1,1]/
+  (confusionMatrix_select[1,1]+confusionMatrix_select[1,2])
+Precision <-  confusionMatrix_select[1,1]/
+  (confusionMatrix_select[1,1]+confusionMatrix_select[2,1])
+F1 <- 2*(Precision*recall)/(Precision+recall)
+accuracy
+recall
+Precision
+F1
+```
+
+
+
+
+
+# conditional probability tables
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+
+library(gRain)
+
+BTNL9_ <- table(data1[,c("BTNL9")])
+CD300LG_BTNL9 <- data1[,c("CD300LG", "BTNL9")] %>% group_by_all %>% count
+class_CD300LG <- data1[,c("class","CD300LG")] %>% group_by_all %>% count
+IGSF10_class <- data1[,c("IGSF10","class")] %>% group_by_all %>% count
+ABCA9_IGSF10_BTNL9 <- data1[,c("ABCA9", "IGSF10", "BTNL9")] %>% group_by_all %>% count
+
+lvl <- levels(as.factor(data1$BTNL9))
+
+BTNL9 <- cptable(~BTNL9, values=as.vector(BTNL9_),levels=lvl)
+CD300LG <- cptable(~CD300LG|BTNL9, values=CD300LG_BTNL9$n,levels=lvl)
+class_ <- cptable(~class_|CD300LG, values=class_CD300LG$n, levels=lvl)
+IGSF10 <- cptable(~IGSF10|class_, values=IGSF10_class$n, levels=lvl)
+ABCA9 <- cptable(~ABCA9|IGSF10:BTNL9,values=ABCA9_IGSF10_BTNL9$n,levels=lvl)
+
+plist <- compileCPT(list(BTNL9,CD300LG,class_,IGSF10,ABCA9))
+# plist
+net1=grain(plist)
+# plot(net1) # undirected network
+plot(net1$dag) # directed network
+
+```
+
+# Probability of the four genes with high expression levels
+```{r message=FALSE, warning=FALSE}
+querygrain(net1, nodes=c("BTNL9","CD300LG","IGSF10","ABCA9"), type="marginal")
+# sum(data1$BTNL9)/length(data1$BTNL9)
+
+```
+
+# probability of having cancer when the expression level of CD300LG is high and BTNL9 is low
+```{r message=FALSE, warning=FALSE}
+#P(class_=yes|CD300LG=yes, BTNL9=NO)
+querygrain(net1, nodes=c("class_","CD300LG","BTNL9"), type="conditional")
+
+```
+```{r message=FALSE, warning=FALSE}
+#P(class_=yes|CD300LG=yes, BTNL9=NO)
+querygrain(net1, nodes=c("class_","CD300LG","BTNL9"), type="conditional")
+
+```
+# Prove the result
+
+```{r message=FALSE, warning=FALSE}
+#P(class_=yes|CD300LG=yes, BTNL9=NO)
+querygrain(net1, nodes=c("class_","CD300LG"), type="conditional")
+
+```
+
+```{r message=FALSE, warning=FALSE}
+#P(class_=yes|CD300LG=yes, BTNL9=NO)
+querygrain(net1, nodes=c("CD300LG","BTNL9"), type="conditional")
+
+```
+```{r message=FALSE, warning=FALSE}
+#P(class_=yes|CD300LG=yes, BTNL9=NO)
+querygrain(net1, nodes=c("class_","CD300LG","ABCA9"), type="conditional")
+
+```
+
+# Why the “class” conditionally independent of ABCA9
+
+
+
+
+
